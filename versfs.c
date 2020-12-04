@@ -35,6 +35,7 @@
 #include <sys/time.h>
 #ifdef HAVE_SETXATTR
 #include <sys/xattr.h>
+#include <stdlib.h>
 #endif
 
 static char* storage_dir = NULL;
@@ -307,29 +308,175 @@ static int mirror_read(const char *path, char *buf, size_t size, off_t offset,
 	return res;
 }
 
+/**
+ * This gets called when a write operation is made into some file
+ */
 static int mirror_write(const char *path, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
+	// =======================
+	// CHECKING THE NEXT VERSION NUMBER
+	// =======================
+	const char *next_version;
+
+	// getting the path to the version control root folder
+	const char *vers_control_root = "/.vcs";
+	const char *version_filename = "/next_version.txt";
+
+	char vers_control_root_path[256];
+	char versions_file_path[256];
+
+	strcpy(vers_control_root_path, storage_dir);
+	strcat(vers_control_root_path, vers_control_root);
+	
+	strcpy(versions_file_path, vers_control_root_path);
+	strcat(versions_file_path, version_filename);
+
+	//checking if that version control root folder exists
+	DIR *vers_root = opendir(vers_control_root_path);
+
+	if (vers_root)
+	{
+		// if the version control root folder exists
+		// then the files have already been "versioned"
+		// so there should be a next_version.txt file storing the next version
+		/*
+		int nextv;
+		int nextvres;
+		int nextvwr;
+		char temp_buf[1];
+
+		nextv = open(versions_file_path, O_RDONLY);
+
+		if (nextv == -1)
+			return -errno;
+		
+		nextvres = pread(nextv, temp_buf, 1, 0);
+
+		if (nextvres == -1)
+			return -errno;
+
+		int current_version;
+
+		sscanf(temp_buf, "%d", &current_version); 
+
+		current_version += 1;
+		
+		sprintf(next_version, "%d", current_version);
+
+		char write_buf[1];
+
+		// updating temp_buf to store next version number
+		sprintf(write_buf, "%d", current_version);
+
+		
+		// writing and updating the next_version.txt
+		nextvwr = pwrite(nextv, write_buf, 1, 0);
+
+		if (nextvwr == -1)
+			return -errno;
+		*/
+
+	}
+	else if (ENOENT == errno)
+	{
+		// if the version control root folder does not exist then the next version is 0
+		next_version = "0";
+
+		//now create the version root folder
+		mkdir(vers_control_root_path, S_IRWXU | S_IRGRP | S_IROTH);
+
+		// and create the versions.txt and put 0 in it
+	 	int nvfd;
+		int nvres;
+		nvfd = open(versions_file_path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);	
+
+		if (nvfd == -1)
+			return -errno;
+
+		char versions_buf[1];
+
+		strcat(versions_buf, next_version);
+		nvres = pwrite(nvfd, versions_buf, 1, 0);
+		
+		if (nvres == -1)
+			return -errno;
+
+		close(nvfd);
+
+
+	}
+	//mkdir(vers_control_root_path, S_IRWXU | S_IRGRP | S_IROTH);
+	
+
+	// =======================
+	// UPDATING THE LATEST FILE AND ADDING A NEW SNAPSHOT
+	// =======================
 	int fd;
+	int fdv; // for the current snapshot file
 	int res;
+	int resv; // for the current snapshot file
 	int i;
-	char temp_buf[size];
+	char temp_buf[size]; // this buffer will store whatever is written into file
 
 	(void) fi;
+
+	const char *file_name = path; // this stores the filename for later use
+
 	path = prepend_storage_dir(storage_path, path);
+
+	// creating a directory inside the invisible one with the snapshot number as its name
+	char folder_path[256];
+
+	// the folder with the current snapshot of the file
+	char snap_folder_name[256]; // is updated below
+	const char *slash = "/";
+	strcat(snap_folder_name, slash); // adding the next_version to the /
+	strcat(snap_folder_name, next_version);	
+
+	strcpy(folder_path, vers_control_root_path);
+	strcat(folder_path, snap_folder_name);
+
+	// creating the snapshot folder inside vcs folder
+	mkdir(folder_path, S_IRWXU | S_IRGRP | S_IROTH);
+
+	// creating/opening the file at the mnt
 	fd = open(path, O_WRONLY);
+
+	// creating a file in the snapshot folder
+	strcat(folder_path, file_name);
+
+	fdv = open(folder_path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
+	
 	if (fd == -1)
 		return -errno;
 
+	if (fdv == -1)
+		return -errno;
+
+	// filling out the temporary buffer
 	for (i = 0; i < size; i += 1) {
 	  temp_buf[i] = buf[i];
 	}
 
+	// writing into the files
 	res = pwrite(fd, temp_buf, size, offset);
+	resv = pwrite(fdv, temp_buf, size, offset);
+
 	if (res == -1)
 		res = -errno;
 
+	if (resv == -1)
+		resv = -errno;
+
+	// closing the files
 	close(fd);
+	close(fdv);
+
+	// ===============================
+	// DONE UPDATING LATEST AND CREATING A SNAPSHOT FILE
+	// ===============================
+
 	return res;
 }
 
