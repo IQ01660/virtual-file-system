@@ -1,10 +1,10 @@
 /**
- * \file versfs.c
+ * \file mirrorfs.c
  * \date November 2020
  * \author Scott F. Kaplan <sfkaplan@amherst.edu>
  * 
- * A user-level file system that maintains, within the storage directory, a
- * versioned history of each file in the mount point.
+ * A user-level file system that simply mirrors all of the actions in the
+ * mounted directory within another (storage) directory.
  *
  * FUSE: Filesystem in Userspace
  * Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>
@@ -35,6 +35,7 @@
 #include <sys/time.h>
 #ifdef HAVE_SETXATTR
 #include <sys/xattr.h>
+#include <stdlib.h>
 #endif
 
 static char* storage_dir = NULL;
@@ -48,7 +49,7 @@ char* prepend_storage_dir (char* pre_path, const char* path) {
 }
 
 
-static int vers_getattr(const char *path, struct stat *stbuf)
+static int mirror_getattr(const char *path, struct stat *stbuf)
 {
 	int res;
 	
@@ -60,7 +61,7 @@ static int vers_getattr(const char *path, struct stat *stbuf)
 	return 0;
 }
 
-static int vers_access(const char *path, int mask)
+static int mirror_access(const char *path, int mask)
 {
 	int res;
 
@@ -72,7 +73,7 @@ static int vers_access(const char *path, int mask)
 	return 0;
 }
 
-static int vers_readlink(const char *path, char *buf, size_t size)
+static int mirror_readlink(const char *path, char *buf, size_t size)
 {
 	int res;
 
@@ -86,7 +87,7 @@ static int vers_readlink(const char *path, char *buf, size_t size)
 }
 
 
-static int vers_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+static int mirror_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		       off_t offset, struct fuse_file_info *fi)
 {
 	DIR *dp;
@@ -113,7 +114,7 @@ static int vers_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	return 0;
 }
 
-static int vers_mknod(const char *path, mode_t mode, dev_t rdev)
+static int mirror_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	int res;
 
@@ -134,7 +135,7 @@ static int vers_mknod(const char *path, mode_t mode, dev_t rdev)
 	return 0;
 }
 
-static int vers_mkdir(const char *path, mode_t mode)
+static int mirror_mkdir(const char *path, mode_t mode)
 {
 	int res;
 
@@ -146,7 +147,7 @@ static int vers_mkdir(const char *path, mode_t mode)
 	return 0;
 }
 
-static int vers_unlink(const char *path)
+static int mirror_unlink(const char *path)
 {
 	int res;
 
@@ -158,7 +159,7 @@ static int vers_unlink(const char *path)
 	return 0;
 }
 
-static int vers_rmdir(const char *path)
+static int mirror_rmdir(const char *path)
 {
 	int res;
 
@@ -170,7 +171,7 @@ static int vers_rmdir(const char *path)
 	return 0;
 }
 
-static int vers_symlink(const char *from, const char *to)
+static int mirror_symlink(const char *from, const char *to)
 {
 	int res;
 	char storage_from[256];
@@ -185,7 +186,7 @@ static int vers_symlink(const char *from, const char *to)
 	return 0;
 }
 
-static int vers_rename(const char *from, const char *to)
+static int mirror_rename(const char *from, const char *to)
 {
 	int res;
 	char storage_from[256];
@@ -200,7 +201,7 @@ static int vers_rename(const char *from, const char *to)
 	return 0;
 }
 
-static int vers_link(const char *from, const char *to)
+static int mirror_link(const char *from, const char *to)
 {
 	int res;
 	char storage_from[256];
@@ -215,7 +216,7 @@ static int vers_link(const char *from, const char *to)
 	return 0;
 }
 
-static int vers_chmod(const char *path, mode_t mode)
+static int mirror_chmod(const char *path, mode_t mode)
 {
 	int res;
 
@@ -227,7 +228,7 @@ static int vers_chmod(const char *path, mode_t mode)
 	return 0;
 }
 
-static int vers_chown(const char *path, uid_t uid, gid_t gid)
+static int mirror_chown(const char *path, uid_t uid, gid_t gid)
 {
 	int res;
 
@@ -239,7 +240,7 @@ static int vers_chown(const char *path, uid_t uid, gid_t gid)
 	return 0;
 }
 
-static int vers_truncate(const char *path, off_t size)
+static int mirror_truncate(const char *path, off_t size)
 {
 	int res;
 
@@ -252,7 +253,7 @@ static int vers_truncate(const char *path, off_t size)
 }
 
 #ifdef HAVE_UTIMENSAT
-static int vers_utimens(const char *path, const struct timespec ts[2])
+static int mirror_utimens(const char *path, const struct timespec ts[2])
 {
 	int res;
 
@@ -266,13 +267,12 @@ static int vers_utimens(const char *path, const struct timespec ts[2])
 }
 #endif
 
-static int vers_open(const char *path, struct fuse_file_info *fi)
+static int mirror_open(const char *path, struct fuse_file_info *fi)
 {
 	int res;
 
 	path = prepend_storage_dir(storage_path, path);
 	res = open(path, fi->flags);
-
 	if (res == -1)
 		return -errno;
 
@@ -281,7 +281,7 @@ static int vers_open(const char *path, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int vers_read(const char *path, char *buf, size_t size, off_t offset,
+static int mirror_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
 	int fd;
@@ -308,125 +308,181 @@ static int vers_read(const char *path, char *buf, size_t size, off_t offset,
 	return res;
 }
 
-static int vers_write(const char *path, const char *buf, size_t size,
+/**
+ * This gets called when a write operation is made into some file
+ */
+static int mirror_write(const char *path, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
-	int fd;
-	int res;
-	int i;
-	char temp_buf[size];
+	// =======================
+	// CHECKING THE NEXT VERSION NUMBER
+	// =======================
+	const char *next_version = "0";
 
-	// storing the init path for later
-	const char *filename = path; // with the slash in front of it
+	// getting the path to the version control root folder
+	const char *vers_control_root = "/.vcs";
+	const char *version_filename = "/next_version.txt";
+
+	char vers_control_root_path[256];
+	char versions_file_path[256];
+
+	strcpy(vers_control_root_path, storage_dir);
+	strcat(vers_control_root_path, vers_control_root);
+	
+	strcpy(versions_file_path, vers_control_root_path);
+	strcat(versions_file_path, version_filename);
+
+	//checking if that version control root folder exists
+	DIR *vers_root = opendir(vers_control_root_path);
+
+	if (vers_root)
+	{
+		// if the version control root folder exists
+		// then the files have already been "versioned"
+		// so there should be a next_version.txt file storing the next version
+		next_version = "1";
+		int nextv;
+		int nextvres;
+		int nextvwr;
+		char temp_buf[1];
+
+		//nextv = open(versions_file_path, O_RDONLY);
+
+		//if (nextv == -1)
+		//	return -errno;
+		
+		//nextvres = pread(nextv, temp_buf, 1, 0);
+
+		//if (nextvres == -1)
+		//	return -errno;
+
+		//int current_version;
+
+		//sscanf(temp_buf, "%d", &current_version); 
+
+		//current_version += 1;
+		
+		//sprintf(next_version, "%d", current_version);
+
+		//char write_buf[1];
+
+		// updating temp_buf to store next version number
+		//sprintf(write_buf, "%d", current_version);
+
+		
+		// writing and updating the next_version.txt
+		//nextvwr = pwrite(nextv, write_buf, 1, 0);
+
+		//if (nextvwr == -1)
+		//	return -errno;
+
+		//close(nextv);
+		
+
+	}
+	else if (ENOENT == errno)
+	{
+		// if the version control root folder does not exist then the next version is 0
+		//next_version = "0";
+
+		//now create the version root folder
+		mkdir(vers_control_root_path, S_IRWXU | S_IRGRP | S_IROTH);
+
+		// and create the versions.txt and put 0 in it
+	 	int nvfd;
+		int nvres;
+		nvfd = open(versions_file_path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);	
+
+		if (nvfd == -1)
+			return -errno;
+
+		char versions_buf[1];
+
+		strcat(versions_buf, next_version);
+		nvres = pwrite(nvfd, versions_buf, 1, 0);
+		
+		if (nvres == -1)
+			return -errno;
+
+		close(nvfd);
+
+
+	}
+	//mkdir(vers_control_root_path, S_IRWXU | S_IRGRP | S_IROTH);
+	
+
+	// =======================
+	// UPDATING THE LATEST FILE AND ADDING A NEW SNAPSHOT
+	// =======================
+	int fd;
+	int fdv; // for the current snapshot file
+	int res;
+	int resv; // for the current snapshot file
+	int i;
+	char temp_buf[size]; // this buffer will store whatever is written into file
 
 	(void) fi;
+
+	const char *file_name = path; // this stores the filename for later use
+
 	path = prepend_storage_dir(storage_path, path);
+
+	// creating a directory inside the invisible one with the snapshot number as its name
+	char folder_path[256];
+
+	// the folder with the current snapshot of the file
+	char snap_folder_name[256]; // is updated below
+	const char *slash = "/";
+	strcat(snap_folder_name, slash); // adding the next_version to the /
+	strcat(snap_folder_name, next_version);	
+
+	strcpy(folder_path, vers_control_root_path);
+	strcat(folder_path, snap_folder_name);
+
+	// creating the snapshot folder inside vcs folder
+	mkdir(folder_path, S_IRWXU | S_IRGRP | S_IROTH);
+
+	// creating/opening the file at the mnt
 	fd = open(path, O_WRONLY);
 
-	//=====================
-	//
-	// ----------- MY CODE ------------
-	//
-	// CREATING MY OWN FILE
-	//const char *somefile_rel_path = "/boo.txt";
+	// creating a file in the snapshot folder
+	strcat(folder_path, file_name);
+
+	fdv = open(folder_path, O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
 	
-	
-	//vers_open(somefile_rel_path, fi);
-	//int res0;
-	//const char *somefile_path = "/boo.txt";
-	//char full_path[256];
-	//strcpy(full_path, storage_dir);
-	//strcat(full_path, somefile_path);
-
-	//res0 = open(full_path, O_CREAT | O_RDWR , S_IRWXU);
-	
-
-
-	// CHECK IF .vers EXISTS -> if no then create it
-	// get its full path first
-	const char *vers_folder_name = "/.vers";
-	char vers_folder_path[256]; // the full path will be here
-	
-	strcpy(vers_folder_path, storage_dir);
-	strcat(vers_folder_path, vers_folder_name);
-
-	DIR *vf = opendir(vers_folder_path);
-	if (vf == NULL)
-	{
-	  // creating the .vers directory
-	  mkdir(vers_folder_path, S_IRWXU | S_IRGRP | S_IROTH);
-	}
-
-	// CHECK IF .vers/filename.txt_hist exists -> if not then create it
-	// and put next_vers.txt into it
-	// and write a value of 0 into next_vers.txt
-	
-	// get the full path to e.g. foo.txt_hist
-	const char *tail = "_hist";
-	char hist_folder_path[256];
-
-	strcpy(hist_folder_path, storage_dir);
-	strcat(hist_folder_path, vers_folder_name);
-	strcat(hist_folder_path, filename);
-	strcat(hist_folder_path, tail);
-
-	DIR *ht = opendir(hist_folder_path);
-	if (ht == NULL)
-	{
-	  // create the hist directory
-	  mkdir(hist_folder_path, S_IRWXU | S_IRGRP | S_IROTH);
-
-	  // put next_vers.txt into it
-	  const char *next_vers_name = "/next_vers.txt";
-	  char next_vers_path[256]; // the path to next_vers.txt wll be here
-
-	  strcpy(next_vers_path, hist_folder_path);
-	  strcat(next_vers_path, next_vers_name);
-	  
-	  int nextv;
-	  int res;
-	  // this will create the file and open it up
-	  nextv = open(next_vers_path, O_CREAT | O_RDWR , S_IRWXU);
-
-	  if (nextv == -1)
-		  return -errno;
-
-	  // writing "0" into the file
-	  char vers_buf[1];
-
-	  vers_buf[0] = '0';
-
-	  res = pwrite(nextv, vers_buf, 1, 0);
-
-	  if (res == -1)
-		  return -errno;
-
-	  close(nextv);
-
-	}
-
-
-
-	
-
-	//=====================
-
 	if (fd == -1)
 		return -errno;
 
+	if (fdv == -1)
+		return -errno;
+
+	// filling out the temporary buffer
 	for (i = 0; i < size; i += 1) {
 	  temp_buf[i] = buf[i];
 	}
 
+	// writing into the files
 	res = pwrite(fd, temp_buf, size, offset);
+	resv = pwrite(fdv, temp_buf, size, offset);
+
 	if (res == -1)
 		res = -errno;
 
+	if (resv == -1)
+		resv = -errno;
+
+	// closing the files
 	close(fd);
+	close(fdv);
+
+	// ===============================
+	// DONE UPDATING LATEST AND CREATING A SNAPSHOT FILE
+	// ===============================
+
 	return res;
 }
 
-static int vers_statfs(const char *path, struct statvfs *stbuf)
+static int mirror_statfs(const char *path, struct statvfs *stbuf)
 {
 	int res;
 
@@ -438,7 +494,7 @@ static int vers_statfs(const char *path, struct statvfs *stbuf)
 	return 0;
 }
 
-static int vers_release(const char *path, struct fuse_file_info *fi)
+static int mirror_release(const char *path, struct fuse_file_info *fi)
 {
 	/* Just a stub.	 This method is optional and can safely be left
 	   unimplemented */
@@ -448,7 +504,7 @@ static int vers_release(const char *path, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int vers_fsync(const char *path, int isdatasync,
+static int mirror_fsync(const char *path, int isdatasync,
 		     struct fuse_file_info *fi)
 {
 	/* Just a stub.	 This method is optional and can safely be left
@@ -461,7 +517,7 @@ static int vers_fsync(const char *path, int isdatasync,
 }
 
 #ifdef HAVE_POSIX_FALLOCATE
-static int vers_fallocate(const char *path, int mode,
+static int mirror_fallocate(const char *path, int mode,
 			off_t offset, off_t length, struct fuse_file_info *fi)
 {
 	int fd;
@@ -486,7 +542,7 @@ static int vers_fallocate(const char *path, int mode,
 
 #ifdef HAVE_SETXATTR
 /* xattr operations are optional and can safely be left unimplemented */
-static int vers_setxattr(const char *path, const char *name, const char *value,
+static int mirror_setxattr(const char *path, const char *name, const char *value,
 			size_t size, int flags)
 {
 	path = prepend_storage_dir(storage_path, path);
@@ -496,7 +552,7 @@ static int vers_setxattr(const char *path, const char *name, const char *value,
 	return 0;
 }
 
-static int vers_getxattr(const char *path, const char *name, char *value,
+static int mirror_getxattr(const char *path, const char *name, char *value,
 			size_t size)
 {
 	path = prepend_storage_dir(storage_path, path);
@@ -506,7 +562,7 @@ static int vers_getxattr(const char *path, const char *name, char *value,
 	return res;
 }
 
-static int vers_listxattr(const char *path, char *list, size_t size)
+static int mirror_listxattr(const char *path, char *list, size_t size)
 {
 	path = prepend_storage_dir(storage_path, path);
 	int res = llistxattr(path, list, size);
@@ -515,7 +571,7 @@ static int vers_listxattr(const char *path, char *list, size_t size)
 	return res;
 }
 
-static int vers_removexattr(const char *path, const char *name)
+static int mirror_removexattr(const char *path, const char *name)
 {
 	path = prepend_storage_dir(storage_path, path);
 	int res = lremovexattr(path, name);
@@ -525,38 +581,38 @@ static int vers_removexattr(const char *path, const char *name)
 }
 #endif /* HAVE_SETXATTR */
 
-static struct fuse_operations vers_oper = {
-	.getattr	= vers_getattr,
-	.access		= vers_access,
-	.readlink	= vers_readlink,
-	.readdir	= vers_readdir,
-	.mknod		= vers_mknod,
-	.mkdir		= vers_mkdir,
-	.symlink	= vers_symlink,
-	.unlink		= vers_unlink,
-	.rmdir		= vers_rmdir,
-	.rename		= vers_rename,
-	.link		= vers_link,
-	.chmod		= vers_chmod,
-	.chown		= vers_chown,
-	.truncate	= vers_truncate,
+static struct fuse_operations mirror_oper = {
+	.getattr	= mirror_getattr,
+	.access		= mirror_access,
+	.readlink	= mirror_readlink,
+	.readdir	= mirror_readdir,
+	.mknod		= mirror_mknod,
+	.mkdir		= mirror_mkdir,
+	.symlink	= mirror_symlink,
+	.unlink		= mirror_unlink,
+	.rmdir		= mirror_rmdir,
+	.rename		= mirror_rename,
+	.link		= mirror_link,
+	.chmod		= mirror_chmod,
+	.chown		= mirror_chown,
+	.truncate	= mirror_truncate,
 #ifdef HAVE_UTIMENSAT
-	.utimens	= vers_utimens,
+	.utimens	= mirror_utimens,
 #endif
-	.open		= vers_open,
-	.read		= vers_read,
-	.write		= vers_write,
-	.statfs		= vers_statfs,
-	.release	= vers_release,
-	.fsync		= vers_fsync,
+	.open		= mirror_open,
+	.read		= mirror_read,
+	.write		= mirror_write,
+	.statfs		= mirror_statfs,
+	.release	= mirror_release,
+	.fsync		= mirror_fsync,
 #ifdef HAVE_POSIX_FALLOCATE
-	.fallocate	= vers_fallocate,
+	.fallocate	= mirror_fallocate,
 #endif
 #ifdef HAVE_SETXATTR
-	.setxattr	= vers_setxattr,
-	.getxattr	= vers_getxattr,
-	.listxattr	= vers_listxattr,
-	.removexattr	= vers_removexattr,
+	.setxattr	= mirror_setxattr,
+	.getxattr	= mirror_getxattr,
+	.listxattr	= mirror_listxattr,
+	.removexattr	= mirror_removexattr,
 #endif
 };
 
@@ -564,21 +620,13 @@ int main(int argc, char *argv[])
 {
 	umask(0);
 	if (argc < 3) {
-	  fprintf(stderr, "USAGE: %s <storage directory> <mount point> [ -d | -f | -s ]\n", argv[0]);
+	  fprintf(stderr, "USAGE: %s <storage directory> <mount point>\n", argv[0]);
 	  return 1;
 	}
 	storage_dir = argv[1];
-	char* mount_dir = argv[2];
-	if (storage_dir[0] != '/' || mount_dir[0] != '/') {
-	  fprintf(stderr, "ERROR: Directories must be absolute paths\n");
-	  return 1;
-	}
 	fprintf(stderr, "DEBUG: Mounting %s at %s\n", storage_dir, argv[2]);
-	int short_argc = argc - 1;
-	char* short_argv[short_argc];
+	char* short_argv[2];
 	short_argv[0] = argv[0];
-	for (int i = 2; i < argc; i += 1) {
-	  short_argv[i - 1] = argv[i];
-	}
-	return fuse_main(short_argc, short_argv, &vers_oper, NULL);
+	short_argv[1] = argv[2];
+	return fuse_main(2, short_argv, &mirror_oper, NULL);
 }

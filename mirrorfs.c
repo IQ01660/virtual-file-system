@@ -288,6 +288,8 @@ static int mirror_read(const char *path, char *buf, size_t size, off_t offset,
 	int i;
 	char temp_buf[size];
 
+	fprintf(stderr, "DEBUG: Reading from %s\n", path);
+	
 	(void) fi;
 	path = prepend_storage_dir(storage_path, path);
 	fd = open(path, O_RDONLY);
@@ -314,6 +316,8 @@ static int mirror_write(const char *path, const char *buf, size_t size,
 	int res;
 	int i;
 	char temp_buf[size];
+
+	fprintf(stderr, "DEBUG: Writing to %s\n", path);
 
 	(void) fi;
 	path = prepend_storage_dir(storage_path, path);
@@ -471,13 +475,21 @@ int main(int argc, char *argv[])
 {
 	umask(0);
 	if (argc < 3) {
-	  fprintf(stderr, "USAGE: %s <storage directory> <mount point>\n", argv[0]);
+	  fprintf(stderr, "USAGE: %s <storage directory> <mount point> [ -d | -f | -s ]\n", argv[0]);
 	  return 1;
 	}
 	storage_dir = argv[1];
+	char* mount_dir = argv[2];
+	if (storage_dir[0] != '/' || mount_dir[0] != '/') {
+	  fprintf(stderr, "ERROR: Directories must be absolute paths\n");
+	  return 1;
+	}
 	fprintf(stderr, "DEBUG: Mounting %s at %s\n", storage_dir, argv[2]);
-	char* short_argv[2];
+	int short_argc = argc - 1;
+	char* short_argv[short_argc];
 	short_argv[0] = argv[0];
-	short_argv[1] = argv[2];
-	return fuse_main(2, short_argv, &mirror_oper, NULL);
+	for (int i = 2; i < argc; i += 1) {
+	  short_argv[i - 1] = argv[i];
+	}
+	return fuse_main(short_argc, short_argv, &mirror_oper, NULL);
 }

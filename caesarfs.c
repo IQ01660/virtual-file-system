@@ -1,10 +1,11 @@
 /**
- * \file mirrorfs.c
+ * \file caesar.c
  * \date November 2020
  * \author Scott F. Kaplan <sfkaplan@amherst.edu>
  * 
- * A user-level file system that simply mirrors all of the actions in the
- * mounted directory within another (storage) directory.
+ * A user-level file system that stores files that appear in the mounted
+ * directory in an encrypted form in the storage directory.  The encryption is a
+ * simple Caesar (shift) cipher.
  *
  * FUSE: Filesystem in Userspace
  * Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>
@@ -48,7 +49,7 @@ char* prepend_storage_dir (char* pre_path, const char* path) {
   return pre_path;
 }
 
-static int amh_getattr(const char *path, struct stat *stbuf)
+static int caesar_getattr(const char *path, struct stat *stbuf)
 {
 	int res;
 	
@@ -60,7 +61,7 @@ static int amh_getattr(const char *path, struct stat *stbuf)
 	return 0;
 }
 
-static int amh_access(const char *path, int mask)
+static int caesar_access(const char *path, int mask)
 {
 	int res;
 
@@ -72,7 +73,7 @@ static int amh_access(const char *path, int mask)
 	return 0;
 }
 
-static int amh_readlink(const char *path, char *buf, size_t size)
+static int caesar_readlink(const char *path, char *buf, size_t size)
 {
 	int res;
 
@@ -86,7 +87,7 @@ static int amh_readlink(const char *path, char *buf, size_t size)
 }
 
 
-static int amh_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+static int caesar_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		       off_t offset, struct fuse_file_info *fi)
 {
 	DIR *dp;
@@ -113,7 +114,7 @@ static int amh_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	return 0;
 }
 
-static int amh_mknod(const char *path, mode_t mode, dev_t rdev)
+static int caesar_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	int res;
 
@@ -134,7 +135,7 @@ static int amh_mknod(const char *path, mode_t mode, dev_t rdev)
 	return 0;
 }
 
-static int amh_mkdir(const char *path, mode_t mode)
+static int caesar_mkdir(const char *path, mode_t mode)
 {
 	int res;
 
@@ -146,7 +147,7 @@ static int amh_mkdir(const char *path, mode_t mode)
 	return 0;
 }
 
-static int amh_unlink(const char *path)
+static int caesar_unlink(const char *path)
 {
 	int res;
 
@@ -158,7 +159,7 @@ static int amh_unlink(const char *path)
 	return 0;
 }
 
-static int amh_rmdir(const char *path)
+static int caesar_rmdir(const char *path)
 {
 	int res;
 
@@ -170,7 +171,7 @@ static int amh_rmdir(const char *path)
 	return 0;
 }
 
-static int amh_symlink(const char *from, const char *to)
+static int caesar_symlink(const char *from, const char *to)
 {
 	int res;
 	char storage_from[256];
@@ -185,7 +186,7 @@ static int amh_symlink(const char *from, const char *to)
 	return 0;
 }
 
-static int amh_rename(const char *from, const char *to)
+static int caesar_rename(const char *from, const char *to)
 {
 	int res;
 	char storage_from[256];
@@ -200,7 +201,7 @@ static int amh_rename(const char *from, const char *to)
 	return 0;
 }
 
-static int amh_link(const char *from, const char *to)
+static int caesar_link(const char *from, const char *to)
 {
 	int res;
 	char storage_from[256];
@@ -215,7 +216,7 @@ static int amh_link(const char *from, const char *to)
 	return 0;
 }
 
-static int amh_chmod(const char *path, mode_t mode)
+static int caesar_chmod(const char *path, mode_t mode)
 {
 	int res;
 
@@ -227,7 +228,7 @@ static int amh_chmod(const char *path, mode_t mode)
 	return 0;
 }
 
-static int amh_chown(const char *path, uid_t uid, gid_t gid)
+static int caesar_chown(const char *path, uid_t uid, gid_t gid)
 {
 	int res;
 
@@ -239,7 +240,7 @@ static int amh_chown(const char *path, uid_t uid, gid_t gid)
 	return 0;
 }
 
-static int amh_truncate(const char *path, off_t size)
+static int caesar_truncate(const char *path, off_t size)
 {
 	int res;
 
@@ -252,7 +253,7 @@ static int amh_truncate(const char *path, off_t size)
 }
 
 #ifdef HAVE_UTIMENSAT
-static int amh_utimens(const char *path, const struct timespec ts[2])
+static int caesar_utimens(const char *path, const struct timespec ts[2])
 {
 	int res;
 
@@ -266,7 +267,7 @@ static int amh_utimens(const char *path, const struct timespec ts[2])
 }
 #endif
 
-static int amh_open(const char *path, struct fuse_file_info *fi)
+static int caesar_open(const char *path, struct fuse_file_info *fi)
 {
 	int res;
 
@@ -280,7 +281,7 @@ static int amh_open(const char *path, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int amh_read(const char *path, char *buf, size_t size, off_t offset,
+static int caesar_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
 	int fd;
@@ -308,7 +309,7 @@ static int amh_read(const char *path, char *buf, size_t size, off_t offset,
 	return res;
 }
 
-static int amh_write(const char *path, const char *buf, size_t size,
+static int caesar_write(const char *path, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
 	int fd;
@@ -336,7 +337,7 @@ static int amh_write(const char *path, const char *buf, size_t size,
 	return res;
 }
 
-static int amh_statfs(const char *path, struct statvfs *stbuf)
+static int caesar_statfs(const char *path, struct statvfs *stbuf)
 {
 	int res;
 
@@ -348,7 +349,7 @@ static int amh_statfs(const char *path, struct statvfs *stbuf)
 	return 0;
 }
 
-static int amh_release(const char *path, struct fuse_file_info *fi)
+static int caesar_release(const char *path, struct fuse_file_info *fi)
 {
 	/* Just a stub.	 This method is optional and can safely be left
 	   unimplemented */
@@ -358,7 +359,7 @@ static int amh_release(const char *path, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int amh_fsync(const char *path, int isdatasync,
+static int caesar_fsync(const char *path, int isdatasync,
 		     struct fuse_file_info *fi)
 {
 	/* Just a stub.	 This method is optional and can safely be left
@@ -371,7 +372,7 @@ static int amh_fsync(const char *path, int isdatasync,
 }
 
 #ifdef HAVE_POSIX_FALLOCATE
-static int amh_fallocate(const char *path, int mode,
+static int caesar_fallocate(const char *path, int mode,
 			off_t offset, off_t length, struct fuse_file_info *fi)
 {
 	int fd;
@@ -396,7 +397,7 @@ static int amh_fallocate(const char *path, int mode,
 
 #ifdef HAVE_SETXATTR
 /* xattr operations are optional and can safely be left unimplemented */
-static int amh_setxattr(const char *path, const char *name, const char *value,
+static int caesar_setxattr(const char *path, const char *name, const char *value,
 			size_t size, int flags)
 {
 	path = prepend_storage_dir(storage_path, path);
@@ -406,7 +407,7 @@ static int amh_setxattr(const char *path, const char *name, const char *value,
 	return 0;
 }
 
-static int amh_getxattr(const char *path, const char *name, char *value,
+static int caesar_getxattr(const char *path, const char *name, char *value,
 			size_t size)
 {
 	path = prepend_storage_dir(storage_path, path);
@@ -416,7 +417,7 @@ static int amh_getxattr(const char *path, const char *name, char *value,
 	return res;
 }
 
-static int amh_listxattr(const char *path, char *list, size_t size)
+static int caesar_listxattr(const char *path, char *list, size_t size)
 {
 	path = prepend_storage_dir(storage_path, path);
 	int res = llistxattr(path, list, size);
@@ -425,7 +426,7 @@ static int amh_listxattr(const char *path, char *list, size_t size)
 	return res;
 }
 
-static int amh_removexattr(const char *path, const char *name)
+static int caesar_removexattr(const char *path, const char *name)
 {
 	path = prepend_storage_dir(storage_path, path);
 	int res = lremovexattr(path, name);
@@ -435,38 +436,38 @@ static int amh_removexattr(const char *path, const char *name)
 }
 #endif /* HAVE_SETXATTR */
 
-static struct fuse_operations amh_oper = {
-	.getattr	= amh_getattr,
-	.access		= amh_access,
-	.readlink	= amh_readlink,
-	.readdir	= amh_readdir,
-	.mknod		= amh_mknod,
-	.mkdir		= amh_mkdir,
-	.symlink	= amh_symlink,
-	.unlink		= amh_unlink,
-	.rmdir		= amh_rmdir,
-	.rename		= amh_rename,
-	.link		= amh_link,
-	.chmod		= amh_chmod,
-	.chown		= amh_chown,
-	.truncate	= amh_truncate,
+static struct fuse_operations caesar_oper = {
+	.getattr	= caesar_getattr,
+	.access		= caesar_access,
+	.readlink	= caesar_readlink,
+	.readdir	= caesar_readdir,
+	.mknod		= caesar_mknod,
+	.mkdir		= caesar_mkdir,
+	.symlink	= caesar_symlink,
+	.unlink		= caesar_unlink,
+	.rmdir		= caesar_rmdir,
+	.rename		= caesar_rename,
+	.link		= caesar_link,
+	.chmod		= caesar_chmod,
+	.chown		= caesar_chown,
+	.truncate	= caesar_truncate,
 #ifdef HAVE_UTIMENSAT
-	.utimens	= amh_utimens,
+	.utimens	= caesar_utimens,
 #endif
-	.open		= amh_open,
-	.read		= amh_read,
-	.write		= amh_write,
-	.statfs		= amh_statfs,
-	.release	= amh_release,
-	.fsync		= amh_fsync,
+	.open		= caesar_open,
+	.read		= caesar_read,
+	.write		= caesar_write,
+	.statfs		= caesar_statfs,
+	.release	= caesar_release,
+	.fsync		= caesar_fsync,
 #ifdef HAVE_POSIX_FALLOCATE
-	.fallocate	= amh_fallocate,
+	.fallocate	= caesar_fallocate,
 #endif
 #ifdef HAVE_SETXATTR
-	.setxattr	= amh_setxattr,
-	.getxattr	= amh_getxattr,
-	.listxattr	= amh_listxattr,
-	.removexattr	= amh_removexattr,
+	.setxattr	= caesar_setxattr,
+	.getxattr	= caesar_getxattr,
+	.listxattr	= caesar_listxattr,
+	.removexattr	= caesar_removexattr,
 #endif
 };
 
@@ -475,19 +476,28 @@ int main(int argc, char *argv[])
 	umask(0);
 	if (argc < 4) {
 	  fprintf(stderr,
-		  "USAGE: %s <storage directory> <mount point> <caesar shift>\n",
+		  "USAGE: %s <storage directory> <mount point> <caesar shift> [ -d | -f | -s ]\n",
 		  argv[0]);
 	  return 1;
 	}
 	storage_dir = argv[1];
-	key        = atoi(argv[3]);
+	char* mount_dir = argv[2];
+	key = atoi(argv[3]);
+	if (storage_dir[0] != '/' || mount_dir[0] != '/') {
+	  fprintf(stderr, "ERROR: Directories must be absolute paths\n");
+	  return 1;
+	}
 	fprintf(stderr,
 		"DEBUG: Mounting %s at %s using key %d\n",
 		storage_dir,
-		argv[2],
+		mount_dir,
 		key);
-	char* short_argv[2];
+	int short_argc = argc - 2;
+	char* short_argv[short_argc];
 	short_argv[0] = argv[0];
-	short_argv[1] = argv[2];
-	return fuse_main(2, short_argv, &amh_oper, NULL);
+	short_argv[1] = mount_dir;
+	for (int i = 4; i < argc; i += 1) {
+	  short_argv[i - 2] = argv[i];
+	}
+	return fuse_main(short_argc, short_argv, &caesar_oper, NULL);
 }
