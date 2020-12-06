@@ -425,6 +425,16 @@ static int vers_write(const char *path, const char *buf, size_t size,
 	int version_num;
 	sscanf(next_vers_buf, "%d", &version_num);
 
+	// store the version before this one for LATER
+	// this is needed if an append operation is done
+	char prev_vers[2];
+
+	if (version_num != 0)
+	{
+	  int prev_vers_num = version_num - 1;
+	  sprintf(prev_vers, "%d", prev_vers_num);
+	}
+
 	// incrementing the version number
 	version_num += 1; 
 
@@ -461,23 +471,58 @@ static int vers_write(const char *path, const char *buf, size_t size,
 	if (snap == -1)
 		return -errno;
 
-	// this part should be UPDATED LATER
-	// as this won't work if something is appended to a file
+	// IF WE ARE APPENDING TO A FILE THEN MAKE SMTH DIFFERENT WITH A temp_buf
+	// checking is the offset from which to be writen is 0
+	if (offset == 0)
+	{
 	
-	//updating the temp_buf
-	for (i = 0; i < size; i += 1) {
-	  temp_buf[i] = buf[i];
+	  // updating the temp_buf
+	  for (i = 0; i < size; i += 1) {
+	    temp_buf[i] = buf[i];
+	  }
+
+	  snap_res = pwrite(snap, temp_buf, size, offset);
 	}
 
-	snap_res = pwrite(snap, temp_buf, size, offset);
+	else
+	{
+	  // read the previous version of file into temp_buf
+	  int prev_snap;
+	  int prev_snap_rd;
+	
+	  // getting the path to the prev snap
+	  char prev_snap_path[256];
+	  strcpy(prev_snap_path, hist_folder_path);
+	  strcat(prev_snap_path, filename);
+	  strcat(prev_snap_path, suffix);
+	  strcat(prev_snap_path, prev_vers);
+
+	  // open the file
+	  prev_snap = open(prev_snap_path, O_CREAT | O_RDWR, S_IRWXU);
+
+	  if (prev_snap == -1)
+		  return -errno;
+
+	  // read the file
+	  prev_snap_rd = pread(prev_snap, temp_buf, offset, 0);
+	  
+	  if (prev_snap_rd == -1)
+		  return -errno;
+
+	  // adding the new chars to the text's buffer
+	  for (i = offset; i < offset + size; i += 1)
+	  {
+	    temp_buf[i] = buf[i - offset];
+	  }
+
+	  snap_res = pwrite(snap, temp_buf, offset + size, 0);
+	  
+	}
 
 	if (snap_res == -1)
 		return -errno;
 
 	close(snap);
-
-
-
 	
 
 	//=====================
@@ -485,7 +530,7 @@ static int vers_write(const char *path, const char *buf, size_t size,
 	if (fd == -1)
 		return -errno;
 
-	res = pwrite(fd, temp_buf, size, offset);
+	res = pwrite(fd, buf, size, offset);
 	if (res == -1)
 		res = -errno;
 
