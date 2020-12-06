@@ -150,10 +150,96 @@ static int vers_unlink(const char *path)
 {
 	int res;
 
+	const char *filename = path; // with the slash in front of it
+	const char *vers_folder_name = "/.vers"; // the hidden versiion control folder
+	const char *tail = "_hist"; // the tail of the history folder of each file
+
 	path = prepend_storage_dir(storage_path, path);
 	res = unlink(path);
 	if (res == -1)
 		return -errno;
+
+	// ================================
+	// ----------- MY CODE ------------
+	
+	// getting the path to the history folder of the file
+	char hist_folder_path[256];
+
+	strcpy(hist_folder_path, storage_dir);
+	strcat(hist_folder_path, vers_folder_name);
+	strcat(hist_folder_path, filename);
+	strcat(hist_folder_path, tail);
+
+	// and to next_vers.txt
+	// to get the version to iterate two
+        const char *next_vers_name = "/next_vers.txt";
+        char next_vers_path[256]; // the path to next_vers.txt wll be here
+
+	strcpy(next_vers_path, hist_folder_path);
+	strcat(next_vers_path, next_vers_name);
+
+	// getting the version as a string via reading the file
+	int nextv;
+	int resv;
+        
+	nextv = open(next_vers_path, O_CREAT | O_RDWR, S_IRWXU);
+	
+	if (nextv == -1)
+		return -errno;
+
+	// now read the file
+	char next_vers_buf[3]; // the buffer that will store the next version
+	resv = pread(nextv, next_vers_buf, 3, 0);
+
+	if (resv == -1)
+		return -errno;
+	
+	// casting the version into an int
+	// THIS SHOULD BE USE WHLE ITERATING THROUGH FLES IN HIST FOLDER
+	int next_version_num;
+	sscanf(next_vers_buf, "%d", &next_version_num);
+
+	close(nextv);
+
+	// --------------------------------
+	// ITERATNG THROUGH THE FILES IN HIST AND UNLINKING THEM
+	
+	int i;
+
+	for (i = 0; i < next_version_num; i += 1)
+	{
+	  // casting the i into a string
+	  char vers_string_null [3]; // size is three here only due to null character
+
+	  // getting rid of a possible null character at the end
+	  sprintf(vers_string_null, "%d", i);
+
+
+	  char snap_file_path [256];
+	  const char *suffix = ",";
+	  
+	  strcpy(snap_file_path, hist_folder_path);
+	  strcat(snap_file_path, filename);
+	  strcat(snap_file_path, suffix);
+	  strcat(snap_file_path, vers_string_null);
+
+	  // unlink the file
+	  int res_snap;
+
+	  res_snap = unlink(snap_file_path);
+
+	  if (res_snap == -1)
+		  return -errno;
+
+	}
+
+	// DELETING THE next_vers.txt
+	unlink(next_vers_path);
+
+	// DELETING THE foo.txt_hist folder
+	rmdir(hist_folder_path);
+	
+	// ================================
 
 	return 0;
 }
@@ -407,16 +493,17 @@ static int vers_write(const char *path, const char *buf, size_t size,
 		return -errno;
 
 	// now read the file
-	char next_vers_buf[2]; // the buffer that will store the next version
-	resv = pread(nextv, next_vers_buf, 2, 0);
+	char next_vers_buf[3]; // the buffer that will store the next version
+	resv = pread(nextv, next_vers_buf, 3, 0);
 
 	if (resv == -1)
 		return -errno;
 
 	// now store that value in a variable to use LATER as a string
-	char next_version[2];
+	char next_version[3];
 	next_version[0] = next_vers_buf[0];
 	next_version[1] = next_vers_buf[1];
+	next_version[2] = next_vers_buf[2];
 
 	// but now update the value of the next version in the next_vers.txt by incrementing it
 	
@@ -427,7 +514,7 @@ static int vers_write(const char *path, const char *buf, size_t size,
 
 	// store the version before this one for LATER
 	// this is needed if an append operation is done
-	char prev_vers[2];
+	char prev_vers[3];
 
 	if (version_num != 0)
 	{
@@ -439,7 +526,8 @@ static int vers_write(const char *path, const char *buf, size_t size,
 	version_num += 1; 
 
 	// converting it back to char ARRAY
-	char update_vers_buf [2]; // size is to here only due to null character
+	char update_vers_buf [3]; // size is three here only due to null character
+
         
 	sprintf(update_vers_buf, "%d", version_num);
 
