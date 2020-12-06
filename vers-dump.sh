@@ -17,6 +17,10 @@ for SNAPSHOT in *; do
 	cp ${SNAPSHOT} ../../../${SNAPSHOT}
 done
 
+# deleting the next_vers.txt from the project folder
+cd ../../../
+rm next_vers.txt
+
 echo "Now you can do ls -l to see the files dumped into the project folder"
 
 

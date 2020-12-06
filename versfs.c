@@ -323,22 +323,8 @@ static int vers_write(const char *path, const char *buf, size_t size,
 	path = prepend_storage_dir(storage_path, path);
 	fd = open(path, O_WRONLY);
 
-	//=====================
-	//
+	// ================================
 	// ----------- MY CODE ------------
-	//
-	// CREATING MY OWN FILE
-	//const char *somefile_rel_path = "/boo.txt";
-	
-	
-	//vers_open(somefile_rel_path, fi);
-	//int res0;
-	//const char *somefile_path = "/boo.txt";
-	//char full_path[256];
-	//strcpy(full_path, storage_dir);
-	//strcat(full_path, somefile_path);
-
-	//res0 = open(full_path, O_CREAT | O_RDWR , S_IRWXU);
 	
 
 
@@ -357,7 +343,7 @@ static int vers_write(const char *path, const char *buf, size_t size,
 	  mkdir(vers_folder_path, S_IRWXU | S_IRGRP | S_IROTH);
 	}
 
-	// CHECK IF .vers/filename.txt_hist exists -> if not then create it
+	// CHECK IF .vers/filename.txt_hist exists -> if no then create it
 	// and put next_vers.txt into it
 	// and write a value of 0 into next_vers.txt
 	
@@ -370,6 +356,14 @@ static int vers_write(const char *path, const char *buf, size_t size,
 	strcat(hist_folder_path, filename);
 	strcat(hist_folder_path, tail);
 
+	// and to next_vers.txt
+        const char *next_vers_name = "/next_vers.txt";
+        char next_vers_path[256]; // the path to next_vers.txt wll be here
+
+	strcpy(next_vers_path, hist_folder_path);
+	strcat(next_vers_path, next_vers_name);
+
+
 	DIR *ht = opendir(hist_folder_path);
 	if (ht == NULL)
 	{
@@ -377,11 +371,6 @@ static int vers_write(const char *path, const char *buf, size_t size,
 	  mkdir(hist_folder_path, S_IRWXU | S_IRGRP | S_IROTH);
 
 	  // put next_vers.txt into it
-	  const char *next_vers_name = "/next_vers.txt";
-	  char next_vers_path[256]; // the path to next_vers.txt wll be here
-
-	  strcpy(next_vers_path, hist_folder_path);
-	  strcat(next_vers_path, next_vers_name);
 	  
 	  int nextv;
 	  int res;
@@ -405,6 +394,88 @@ static int vers_write(const char *path, const char *buf, size_t size,
 
 	}
 
+	// READING FROM next_vers.txt TO FIND THE VERSION
+	// OF THE FILE TO BE CREATED
+	
+	// first open up the file - next_vers.txt
+	int nextv;
+	int resv;
+        
+	nextv = open(next_vers_path, O_CREAT | O_RDWR, S_IRWXU);
+	
+	if (nextv == -1)
+		return -errno;
+
+	// now read the file
+	char next_vers_buf[2]; // the buffer that will store the next version
+	resv = pread(nextv, next_vers_buf, 2, 0);
+
+	if (resv == -1)
+		return -errno;
+
+	// now store that value in a variable to use LATER as a string
+	char next_version[2];
+	next_version[0] = next_vers_buf[0];
+	next_version[1] = next_vers_buf[1];
+
+	// but now update the value of the next version in the next_vers.txt by incrementing it
+	
+	// first convert a char to an int
+	//int version_num = (int) next_vers_buf[0] - (int) '0';
+	int version_num;
+	sscanf(next_vers_buf, "%d", &version_num);
+
+	// incrementing the version number
+	version_num += 1; 
+
+	// converting it back to char ARRAY
+	char update_vers_buf [2]; // size is to here only due to null character
+        
+	sprintf(update_vers_buf, "%d", version_num);
+
+	// write version back into next_vers.txt
+	
+	int resv_wr;
+	resv_wr = pwrite(nextv, update_vers_buf, 2, 0);
+	
+	if (resv_wr == -1)
+		return -errno;
+
+	close(nextv);
+
+	
+	// CREATING A SNAPSHOT FILE with a suffix in .vers/foo.txt_hist/foo.txt,v
+	// getting the path to the file
+	char snap_file_path[256];
+	const char *suffix = ",";
+	strcpy(snap_file_path, hist_folder_path);
+	strcat(snap_file_path, filename);
+	strcat(snap_file_path, suffix);
+	strcat(snap_file_path, next_version);
+
+	int snap;
+	int snap_res;
+	
+	snap = open(snap_file_path, O_CREAT | O_RDWR, S_IRWXU);
+
+	if (snap == -1)
+		return -errno;
+
+	// this part should be UPDATED LATER
+	// as this won't work if something is appended to a file
+	
+	//updating the temp_buf
+	for (i = 0; i < size; i += 1) {
+	  temp_buf[i] = buf[i];
+	}
+
+	snap_res = pwrite(snap, temp_buf, size, offset);
+
+	if (snap_res == -1)
+		return -errno;
+
+	close(snap);
+
 
 
 	
@@ -413,10 +484,6 @@ static int vers_write(const char *path, const char *buf, size_t size,
 
 	if (fd == -1)
 		return -errno;
-
-	for (i = 0; i < size; i += 1) {
-	  temp_buf[i] = buf[i];
-	}
 
 	res = pwrite(fd, temp_buf, size, offset);
 	if (res == -1)
